@@ -1,0 +1,227 @@
+/***************************************************************************
+@ Name:SecondaryInvoiceUpload     
+@ =========================================================================
+@ Purpose:                                                                                                             
+@ =========================================================================
+@ History                                                            
+@ =========================================================================                                                           
+@ VERSION  AUTHOR             DATE                DETAIL                                 
+@ 1.0 -   Gourab Hazra      15-05-2017         INITIAL DEVELOPMENT              
+******************************************************************************/
+public class SecondaryInvoiceUpload {
+    public Blob csvFileBody{get;set;}
+    public Blob downloadFile{get;set;}
+    public blob csvBlob{get;set;}
+    public string csvAsString{get;set;}
+    public String[] csvFileLines{get;set;}
+    public List<Secondary_Invoice_Info__c> seclist{get;set;}
+    public Integer pass{get;set;}
+    public Integer fail{get;set;}
+    public Integer totalrecord {get;set;}
+    public Boolean flag {get;set;}
+    public String tp{get;set;}
+    Public Id docId{get;set;}
+    private boolean docDown;
+    private List<String> mimeType = new List<String>{'application/csv','application/vnd.ms-excel','text/csv'};
+    public string fileContent{get;set;}
+    public string header = 'Distributor Code,Customer Code,Invoice No.,Invoice Date,Product Code,Product Description,Sales Unit,Quantity,Amount,Order No,Error\n';
+    public SecondaryInvoiceUpload(){
+        //flag=false;
+        csvFileLines = new String[]{};
+        seclist = New List<Secondary_Invoice_Info__c>();
+    }
+    
+    // Called form Upload Button
+    public void importCSVFile(){
+        ApexPages.Message errorMessage;
+        try{
+            boolean flag1=false;
+            for(String s:mimeType){
+                if(tp == s){
+                    flag1=true;
+                }
+            }
+            if(!flag1){
+                ApexPages.addmessage(new ApexPages.message(ApexPages.severity.WARNING,'Only .csv format file is supported!!!'));
+            }
+            else{
+                pass=0;
+                fail=0;
+                totalrecord=0;
+                seclist.clear();
+                csvAsString  = csvFileBody.toString();
+                csvFileLines = csvAsString.split('\n');
+                system.debug('csvFileLines[0]'+csvFileLines[0]);
+                //fileContent  = csvFileLines[0] + 'Error Details';
+                docDown=false;
+                for(Integer i=1;i<csvFileLines.size();i++){
+                    try{
+                        Secondary_Invoice_Info__c secObj = new Secondary_Invoice_Info__c() ;
+                        string[] csvRecordData = csvFileLines[i].split(',');
+                       // if(csvRecordData[0] != null && csvRecordData[0] != ''){
+                            secObj.Distributor_Code__c = csvRecordData[0] ;                 
+                        //}
+                       /* else{
+                            //fileContent= fileContent+csvFileLines[i] + 'Required fields is missing';
+                            errorMessage = new ApexPages.Message(ApexPages.severity.ERROR,'Required fields is missing!!!'); 
+                        } */
+                        secObj.Customer_Code__c = csvRecordData[1];
+                        secObj.Invoice_No__c = csvRecordData[2];
+                        String s1=csvRecordData[3];
+                        List<String> s2;
+                        if(s1.contains('-')){
+                            s2=s1.split('-');
+                        }
+                        secObj.Invoice_Date__c=date.newInstance(Integer.valueOf(s2[2]),Integer.valueOf(s2[1]),Integer.valueOf(s2[0]));
+                        //secObj.Invoice_Date__c = Date.parse(csvRecordData[3]);
+                        secObj.Product_Code__c = csvRecordData[4];
+                        secObj.Product_Description__c = csvRecordData[5]; 
+                        secObj.Sales_Unit__c= csvRecordData[6];
+                        secObj.Quantity__c= decimal.valueOf(csvRecordData[7]);
+                        secObj.Amount__c= decimal.valueOf(csvRecordData[8]);
+                        secObj.Order_No__c= csvRecordData[9];
+                        seclist.add(secObj);  
+                    }
+                    catch(Exception e){
+                        fileContent= fileContent+csvFileLines[i];
+                        System.debug(e.getMessage());
+                    }
+                }
+                List<Database.SaveResult> dRes;
+                if(!seclist.isEmpty()){
+                    dRes= Database.insert(seclist,false);
+                }
+                flag=true;
+                if(dRes !=null){
+                    totalrecord=dRes.size();
+                    for(Integer i=0; i<dRes.size();i++){
+                        //Database.insertResult resrecord=res;
+                        if(dRes[i].isSuccess()){
+                            //System.debug(res);
+                            //System.debug(res.getId());
+                             pass++;
+                        }
+                        else{
+                            for(Database.Error err : dRes[i].getErrors()) {
+                       			system.debug('###'+err.getMessage());
+                                String headerErr = csvFileLines[0];
+                                fileContent=headerErr+ err.getMessage() + ','+'\n';
+                                
+                                
+                                
+                                
+                              /*  headerErr = headerErr.replace('\n', ',Error\n');
+                                system.debug('headerErr::::'+headerErr);
+                                //fileContent = csvFileLines[0] + ', Error\n';
+                                //csvAsString  = csvFileBody.toString();
+                                //csvFileLines = csvAsString.split('\n');
+                                //csvFileLines[0] = csvFileLines[0]+', Error';
+                                system.debug('###12'+csvFileLines);
+                                system.debug('###'+csvFileLines[i+1]);
+                                string[] csvRecordData = csvFileLines[i+1].split(',');
+                                String Lines ='';
+                                for(String str : csvRecordData){
+                                    Lines = Lines+','+ str;
+                                }
+                                Lines = Lines+ ','+ err.getMessage();
+                                system.debug('###12'+Lines);
+                                csvFileLines[i+1] = csvFileLines[i+1].replace('\n',','+err.getMessage()+'\n');// +',' + err.getMessage();
+                                system.debug('csvFileLines[i+1]::::'+csvFileLines[i+1]);
+                                fileContent= headerErr+csvFileLines[i+1];
+                                */
+                   			 }
+                            docDown=true;
+                            //System.debug(res);
+                            //System.debug(res.getId());
+                            fail++;
+                        }
+                    } 
+                }
+                System.debug(docDown);
+                try{
+                    if(docDown){
+                        csvBlob= Blob.valueOf(fileContent);
+                        System.debug(csvBlob.toString());
+                        Document failDoc = new Document();
+                        failDoc.Body=csvBlob;
+                        failDoc.Name='FailAttachment.csv';
+                        failDoc.ContentType='application/vnd.ms-excel';
+                        failDoc.FolderId = '0059E000000fqJS';
+                        failDoc.isInternalUseOnly=false;
+                        INSERT failDoc;
+                        docId=failDoc.Id;    
+                        System.debug(docId);
+                    }
+                    System.debug(docId);
+                }
+                catch(Exception e){
+                    system.debug('@@@'+e.getMessage());
+                }  
+            }
+            System.debug(errorMessage);
+            if(errorMessage != null){
+              ApexPages.addMessage(errorMessage);  
+            }
+        }
+        catch (Exception e1)
+        {
+            System.debug(e1.getMessage());
+            /*ApexPages.Message errorMessage = new ApexPages.Message(ApexPages.severity.ERROR,'An error has occured while importin data Please make sure input csv file is correct');
+            ApexPages.addMessage(errorMessage);*/
+        }
+    }
+
+    public void wait3Seconds() {
+        Long startTime = DateTime.now().getTime();
+        while(DateTime.now().getTime()-startTime<3000);
+    }
+}
+
+
+########################################################################################################
+
+
+<!--***************************************************************************
+@ Name:secondaryInvoiceDataUpload     
+@ =========================================================================
+@ Purpose:                                                                                                             
+@ =========================================================================
+@ History                                                            
+@ =========================================================================                                                           
+@ VERSION  AUTHOR             DATE                DETAIL                                 
+@ 1.0 -   Gourab Hazra      15-05-2017         INITIAL DEVELOPMENT              
+******************************************************************************-->
+<apex:page controller="SecondaryInvoiceUpload" showHeader="true" sidebar="false">  
+    <apex:form >
+        <apex:pagemessages />
+        <apex:pageBlock >
+            <apex:actionRegion >
+                <apex:pageBlockSection columns="2" > 
+                    Stock Upload<apex:inputFile value="{!csvFileBody}"  filename="{!csvAsString}" contentType="{!tp}"/>
+                    <apex:commandButton value="UPLOAD" action="{!importCSVFile}" onclick="loadPageContent()"/>
+                </apex:pageBlockSection>
+            </apex:actionRegion>
+        </apex:pageBlock>
+        <apex:pageBlock >
+            <apex:pageBlockSection columns="1" rendered="{!flag}" title="Result Section">
+                <apex:outputText value="{!pass}" label="Pass"/>
+                <apex:outputText value="{!fail}" label="Fail"/>
+                <apex:outputText value="{!totalrecord}" label="Total Record"/>
+                <apex:outputLink value="{!URLFOR($Action.Document.Download, docId)}" target="_blank" rendered="{!NOT(ISBLANK(docId))}">Fail Record Download</apex:outputLink>
+            </apex:pageBlockSection>
+        </apex:pageBlock>
+        <apex:actionRegion >
+            <apex:actionFunction name="loadPageContent" action="{!wait3Seconds}" status="loading" reRender="form"/>
+        </apex:actionRegion>
+    </apex:form>
+    <apex:actionStatus id="loading">
+        <apex:facet name="start" >
+            <div style="z-index: 1000; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: black; opacity: 0.25">
+            </div>
+            <div style="z-index: 1001; text-align: center; vertical-align: middle; position: fixed; top: 50%; left: 50%; padding: 1em; margin: -2em -10em; width: 20em; height: 32px; background: white; border-radius: 5px">
+                <img src="/img/loading32.gif" style="vertical-align: middle; padding-right: 1em" />
+                Loading...
+            </div>
+        </apex:facet>
+    </apex:actionStatus>
+</apex:page>

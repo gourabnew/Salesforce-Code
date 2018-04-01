@@ -1,0 +1,229 @@
+@isTest
+public class VisitExecutionControllerTest {
+    
+   //Variable declaration
+     public static User ur;
+     public static Account acc;
+     public static Product_Master__c pm;
+    static testMethod void testMethod1(){
+        
+        VisitExecutionController Visite = new VisitExecutionController();
+        Profile p = [SELECT Id FROM Profile WHERE Name='ATM Profile'];
+        Date dt = system.today();
+        Datetime dtTime = DateTime.newInstance(dt, Time.newInstance(0, 0, 0, 0));
+        // User Data
+        ur=IntializeTestData.CreateUser('TestUser','standarduser@testorg.com','TstAlias','TestUser@acmeeeee.com','abc','en_IN',
+                                       'Asia/Kolkata',p.id,'en_US','UTF-8','12345');
+        ur.User_Type__c = 'ATM';
+        ur.Route__c = 'TESTROUTE';
+        ur.Center__c = 'TESTCENTER';
+        ur.Sales_Office__c = 'Central';
+        ur.Sales_Group__c = 'Bungoma';
+        insert ur;
+        
+        // Account Data
+        acc=IntializeTestData.createPrimaryCustomer('CP1','11233','Kenya Stores1','Thika1', 
+                                              '2323','Thika1','central1','Bidco1@gmail.com',true);
+        acc.Geo_Code__Latitude__s = 12.972442;
+        acc.Geo_Code__Longitude__s =77.580643;
+        acc.BillingState = 'Karnataka';
+        acc.BillingCountry = 'India';
+        acc.Customer_Category__c = 'Silver';
+        acc.Customer_Group__c ='CP';
+        acc.Total_Amount__c = 222.05;
+        acc.X0_7_Days__c = 12.12;
+        acc.X31_60_Days__c = 12.12;
+        acc.Legal_Status__c = 'approve';
+        insert acc;
+       
+        //Visit Plan 
+        Visit_Plan__c vp = new Visit_Plan__c();
+        vp.Status__c = 'Approved';
+        insert vp;
+        
+         //Visit object
+         
+        
+       
+    }
+    
+    
+    public static testMethod void visitExecution(){
+
+        
+        
+        
+        
+        //Dummy data for Visit object
+        Visit__c visit = new Visit__C();
+        visit.Account__c = acc.Id;
+        visit.Visit_Plan_Date__c = dt;
+        visit.Checkin_Location__Latitude__s = 1.02;
+        visit.Checkin_Location__Longitude__s = 35.00;
+        visit.Checkout_Location__Latitude__s = 1.02;
+        visit.Checkout_Location__Longitude__s = 35.00;
+        visit.Checkin_DateTime__c = dtTime;
+        visit.Checkout_DateTime__c = dtTime;
+        visit.Reason__c = 'Store Closed';
+        visit.User__c = u.Id;
+        visit.Visit_Plan__c = vp.Id;
+        visit.CreatedbyID = UserInfo.getUserId();
+        insert visit;
+        
+        //Dummy data for product master object
+        Product_Master__c pm = new Product_Master__c();
+        pm.Name = '70230180';
+        insert pm;
+        
+        
+        //Dummy data for Sales Order object
+        Sales_Order__c salesOrder = new Sales_Order__c();
+        RecordType  rcType = [SELECT Id,Name,DeveloperName FROM RecordType WHERE Name='Primary Sales Order'];
+        system.debug('record Acc id ' + acc.id);
+        salesOrder.Buyer__c = acc.Id;
+        salesOrder.RecordTypeId = rcType.Id;
+        salesOrder.Order_Status__c = 'Created';
+        salesOrder.Order_Number__c = '89576894';
+        salesOrder.Date__c = dt;
+        insert salesOrder;
+        
+        //Dummy data for Sales Order Line Item object
+        Sales_Order_Line_Item__c soli = new Sales_Order_Line_Item__c();
+        soli.Product_Master__c = pm.Id; //'70230180';
+        soli.Sales_Price__c = 100.50;
+        soli.Sales_Order__c = salesOrder.Id;
+        insert soli;
+        
+        test.startTest();
+        
+        String dates = string.valueOf(dt);
+        String dtt = String.valueOf(dtTime);
+        VisitExecutionController.checkInSave(visit, acc.Id);
+        VisitExecutionController.checkOutSave(visit, acc.Id);
+        VisitExecutionController.missedSave(visit, acc.Id);
+        VisitExecutionController.getCustomers('All');
+        VisitExecutionController.getReasons();
+        VisitExecutionController.getRoutes();
+        VisitExecutionController.getSalesOrderList(acc.Id);
+        VisitExecutionController.getReportID();
+        String customerids = acc.id;
+        VisitExecutionController.getOutstandingInfo(customerids);
+        
+        
+        //VisitExecutionController.visitAccountMap;
+        
+        test.stopTest();
+    }
+    
+    public static testMethod void visitExecution2(){
+        
+        Profile p = [SELECT Id FROM Profile WHERE Name='DSR Profile'];
+        Date dt = system.today();
+        Datetime dtTime = DateTime.newInstance(dt, Time.newInstance(0, 0, 0, 0));
+        
+        //Dummy data for User object
+        User u = new User(); //[SELECT id FROM USER WHERE id=:UserInfo.getUserId()];
+        u.LastName = 'TestUser1';
+        u.Email = 'standarduser@testorg.com';
+        u.Username = 'TestUser@acmeeeee.com';
+        u.Alias = 'TstAlias';
+        u.EmailEncodingKey = 'UTF-8';
+        u.LocaleSidKey = 'en_IN';
+        u.LanguageLocaleKey = 'en_US';
+        u.TimeZoneSidKey = 'Asia/Kolkata';
+        u.CP_Code__c = '123456';
+        u.User_Type__c = 'DSR';
+        u.Sales_Office__c = 'Coast';
+        u.Sales_Group__c = 'Central Meru';
+        u.Route__c = 'TESTROUTE2';
+        u.Center__c = 'TESTCENTER2';
+        u.ProfileId = p.Id;
+        insert u;
+        
+        //Dummy data for Account object
+        Account acc = new Account();
+        acc.Name = 'TestAcc';
+        acc.Geo_Code__Latitude__s = 1.02;
+        acc.Geo_Code__Longitude__s = 35.00;
+        acc.BillingStreet = 'TestStreet';
+        acc.BillingCity = 'TestCity';
+        acc.BillingState = 'TestState';
+        acc.BillingPostalCode = '560076';
+        acc.BillingCountry = 'TstCountry';
+        acc.Customer_Category__c = 'Silver';
+        acc.Customer_Group__c ='CP';
+        acc.Customer_Type__c = 'TstCstType';
+        acc.SAP_Customer_Number__c = '123456';
+        acc.Total_Amount__c = 222.05;
+        acc.X0_7_Days__c = 12.12;
+        acc.X31_60_Days__c = 12.12;
+        acc.Legal_Status__c = 'approve';
+        insert acc;
+        
+        //Dummy data for Visit Plan object
+        Visit_Plan__c vp = new Visit_Plan__c();
+        vp.Status__c = 'Submitted';
+        insert vp;
+        
+        
+        //Dummy data for Visit object
+        Visit__c visit = new Visit__C();
+        visit.Account__c = acc.Id;
+        visit.Visit_Plan_Date__c = dt;
+        visit.Checkin_Location__Latitude__s = 1.02;
+        visit.Checkin_Location__Longitude__s = 35.00;
+        visit.Checkout_Location__Latitude__s = 1.02;
+        visit.Checkout_Location__Longitude__s = 35.00;
+        visit.Checkin_DateTime__c = dtTime;
+        visit.Checkout_DateTime__c = dtTime;
+        visit.Reason__c = 'Store Closed';
+        visit.User__c = u.Id;
+        visit.Visit_Plan__c = vp.Id;
+        visit.CreatedbyID = UserInfo.getUserId();
+        visit.Type__c = 'Unplanned';
+        insert visit;
+        
+        //Dummy data for product master object
+        Product_Master__c pm = new Product_Master__c();
+        pm.Name = '70230181';
+        insert pm;
+        
+        
+        //Dummy data for Sales Order object
+        Sales_Order__c salesOrder = new Sales_Order__c();
+        RecordType  rcType = [SELECT Id,Name,DeveloperName FROM RecordType WHERE Name='Primary Sales Order'];
+        system.debug('record Acc id ' + acc.id);
+        salesOrder.Buyer__c = acc.Id;
+        salesOrder.RecordTypeId = rcType.Id;
+        salesOrder.Order_Status__c = 'Created';
+        salesOrder.Order_Number__c = '89576894';
+        salesOrder.Date__c = dt;
+        insert salesOrder;
+        
+        //Dummy data for Sales Order Line Item object
+        Sales_Order_Line_Item__c soli = new Sales_Order_Line_Item__c();
+        soli.Product_Master__c = pm.Id; 
+        soli.Sales_Price__c = 100.50;
+        soli.Sales_Order__c = salesOrder.Id;
+        insert soli;
+        
+        test.startTest();
+        
+        String dates = string.valueOf(dt);
+        String dtt = String.valueOf(dtTime);
+        VisitExecutionController.checkInSave(visit, acc.Id);
+        VisitExecutionController.checkOutSave(visit, acc.Id);
+        VisitExecutionController.getReasons();
+        VisitExecutionController.getRoutes();
+        VisitExecutionController.getSalesOrderList(acc.Id);
+        VisitExecutionController.getSalesOrderList(acc.Id);
+        VisitExecutionController.missedSave(visit, acc.Id);
+        try{
+            VisitExecutionController.getCustomers('');
+        }catch(Exception e){
+            system.debug(e.getMessage());
+        }
+        test.stopTest();
+    }
+    
+}

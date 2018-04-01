@@ -1,0 +1,96 @@
+public class QuoteAppprovalProcesscontroller {
+    
+    @AuraEnabled
+    public static String callApprovalProcess(ID quoteId){
+      system.debug('*******************'+quoteId);
+      Set<Id> aid = new Set<Id>();
+      List<String> RegionList = new List<String>();
+      List<String> AccountRegionList = new List<String>();
+      Set<Id> managerId = new Set<Id>();    
+        
+        try{
+             // Check the record is lock or Not
+          /*  if(Approval.isLocked(quoteId)){
+                system.debug('The record is locked');
+            }
+            else{  */
+
+                  // Manager User data 
+                  String currentUserId = UserInfo.getUserId();
+                  system.debug('##########'+currentUserId);
+                  List<User> managerIdList=  [Select Id,ManagerId FROM User WHERE Id = :currentUserId];
+                  system.debug('#########'+managerIdList);
+
+                  // Second Level Approval User
+                  List<User> SecondApprover = [ Select Id,Name,UserRole.Name from User Where UserRole.Name = 'Sales Head'];
+
+                  // Third Level Approval User
+                  List<User> ThirdApprover = [ Select Id,Name,UserRole.Name from User Where UserRole.Name = 'CEO'];
+
+                // Fetch Quote Records
+                 List<Quote> quoteList = [Select Id,Name,Account.Region__c,Discount,Tax,Status__c from Quote Where Id =:quoteId];
+
+                 if(quoteList.size()>0){
+
+                  List<Approval_Process_Discount_Rates__mdt> MetaDataList=[Select Id,Label,Language,MasterLabel,NamespacePrefix,QualifiedApiName,
+                  Step1_Discount_Percentage__c,Step2_Discount_Percentage__c,Step3_Discount_Percentage__c,Step4_Discount_Percentage__c from Approval_Process_Discount_Rates__mdt 
+                  Where Label=:quoteList[0].Account.Region__c];
+
+                    if(quoteList[0].Account.Region__c == MetaDataList[0].Label){
+
+                      if(quoteList[0].Discount > MetaDataList[0].Step1_Discount_Percentage__c){
+                           Approval.ProcessSubmitRequest req1 = new Approval.ProcessSubmitRequest();
+                            req1.setComments('Submitting request for approval Process');
+                            req1.setObjectId(quoteId);
+
+                            if(managerIdList.size() > 0 && managerIdList[0].ManagerId != null){
+                                system.debug('ManagerId::::::'+managerIdList[0].ManagerId);
+                              //  req1.setSubmitterId(managerIdList[0].ManagerId);
+                                req1.setNextApproverIds(new Id[] {managerIdList[0].ManagerId});
+
+                                  Approval.ProcessResult result = Approval.process(req1);
+                                  system.debug('Result ::::::'+result);
+                              } 
+                         }
+                         // Second Approver
+                         if(quoteList[0].Discount > MetaDataList[0].Step2_Discount_Percentage__c){
+
+                            if(SecondApprover.size() > 0 && SecondApprover[0].Id != null){
+
+                               quoteList[0].Second_Level_User__c= SecondApprover[0].Id;
+                               system.debug('Second Approver'+quoteList[0].Second_Level_User__c);
+                              
+                            }
+                            
+                         }
+                         
+                         // Third Approver
+                         if(quoteList[0].Discount > MetaDataList[0].Step3_Discount_Percentage__c){     
+                          
+                            if(ThirdApprover.size() > 0 && ThirdApprover[0].Id != null){
+                                  quoteList[0].Need_Step_3_Approval__c= true;
+                            }
+                         }
+
+                         if(quoteList[0].Discount > MetaDataList[0].Step4_Discount_Percentage__c){
+                            quoteList[0].Need_Step_4_Approval__c= true;
+                         }
+                         
+                    }
+                    
+                    quoteList[0].Status__c=System.Label.Submit_for_Level_1_Approval;
+                    update quoteList;
+                } 
+
+                
+            //} 
+             return 'Approval Request placed Sucessfully';    
+                
+            } catch(exception e){
+                system.debug('&&&&&&&'+e.getMessage());
+                system.debug('&&&&&&&'+e.getLineNumber());
+                return 'Couldnt process Request';
+            }
+            
+    }
+}

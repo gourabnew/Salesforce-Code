@@ -1,0 +1,186 @@
+/*Author : Satyanarayana M
+*Description: Batch class to move all staging inventory records to inventory master and update status back to Staging Inventory object. 
+*Created Date: 05/06/2014
+*Version: 1.0
+*/
+global class StagingInventoryBatch implements Database.Batchable<sObject> {
+    
+    private string Query;
+    private sObjectType ObjectSchema;
+    private map<String, Schema.SObjectField> StagingInventoryFieldMap;
+    private static final string INVENTORY_MD_CUSTOMER = 'eFOCUS_Company_Name__c';
+    private static final string INVENTORY_MATERIAL_NAME = 'eFOCUS_Material_Name__c';
+    private static final list<string> STATUS_REC = new list<string>{'Not Processed', 'Processed-Error'};
+    private static final string STATUS_ERROR = 'Processed-Error';
+    private static final string STATUS_SUCESS = 'Processed';
+    
+    /* **********************************  Batch Start Method  
+Queries all stagging Inventory object records which are "Not Processed".
+********************************** */
+    
+    global Database.QueryLocator start(Database.BatchableContext BC) {
+        
+        //Getting staging Inventory object field api names dynamically.
+        ObjectSchema = schema.getGlobalDescribe().get('Staging_Inventory__c');
+        StagingInventoryFieldMap = objectSchema.getDescribe().fields.getMap();
+        //Construct generic query string used to query stagingInventory data dynamically
+        Query ='select ';
+        for(Schema.SObjectField s : StagingInventoryFieldMap.values()) {
+            Query = Query + s.getDescribe().getName()+',';    
+        }
+        Query = Query.removeEnd(',');
+        Query = Query + ' from Staging_Inventory__c where status__c IN:STATUS_REC';
+        System.debug('*********Staging object**************'+Query);
+        return Database.getQueryLocator(Query);
+    }
+    
+    /*   **********************************  Batch Execute Method.
+Process the batch of records and upsert the records to Inventory Master object with the ExternalId(eFocus Company Name + eFocus Material Name)
+And update the sucess/error status back to the Staging Inventory object 
+******************************************* */
+    
+    global void execute(Database.BatchableContext BC, List<Staging_Inventory__c> scope) {
+        list<string> MDDealerCodeList = new list<string>();
+        list<string> MaterialList = new list<string>();
+        map<string, Customer__c> MDCustomerMap = new map<string, Customer__c>();
+        map<string, Material_Master__c> MaterialMasterMap = new map<string, Material_Master__c>();
+        list<Inventory_Master__c> InventoryMasterList = new list<Inventory_Master__c>();
+        list<Database.upsertResult> InventoryMasterUpsertResult;
+        list<Staging_Inventory__c> stagingInventoryList = new list<Staging_Inventory__c>();
+        list<Staging_Inventory__c> stagingInventoryListToUpdate = new list<Staging_Inventory__c>();
+        
+        // Getting 'MD' recordtype info. from Customer object 
+        Schema.RecordTypeInfo rtByName =  Schema.SObjectType.Customer__c.getRecordTypeInfosByName().get('MD');
+        
+        //Getting "Inventory Master" object, Fields details. 
+        map<String, Schema.SObjectField> salesHistoryDescribeFields = Schema.SObjectType.Inventory_Master__c.fields.getMap();
+        
+        //Getting "Inventory Mapping" custom setting values.
+        map<string, Inventory_Mapping__c> InventoryFieldMap =  Inventory_Mapping__c.getAll();
+        
+        
+        //Segregating all Company and eFocus Material Number from satging Inventory records.
+        for(Staging_Inventory__c s : scope) {
+            MDDealerCodeList.add(s.eFOCUS_Company_Code__c);
+            MaterialList.add(s.eFOCUS_Material_No__c);
+        }
+        
+        //Retreiving Customers for corresponding Staging Inventory.
+        if(!MDDealerCodeList.isEmpty()) {
+            for(Customer__c MDCustomer : [select Name, Company_Code__c from Customer__c where RecordTypeId =: rtByName.getRecordTypeId() And Company_Code__c In: MDDealerCodeList]) {
+                MDCustomerMap.put(MDCustomer.Company_Code__c, MDCustomer);
+            }
+        }
+        
+        //Retreiving Material Master for the corresponding Satging Inventory.
+        if(!MaterialList.isEmpty()) {
+            for(Material_Master__c MaterialMasterList : [select Name from Material_Master__c where Name IN: MaterialList]) {
+                MaterialMasterMap.put(MaterialMasterList.Name, MaterialMasterList);
+            }
+        }
+        
+        //Mapping the Staging Inventory record with the Inventory Master.
+        for(Staging_Inventory__c stagingInventory : scope) {
+            Inventory_Master__c inventoryMaster = new Inventory_Master__c();
+            for(Inventory_Mapping__c inv : InventoryFieldMap.values()) {
+                if(string.valueOf(stagingInventory.get(inv.Inventory_Staging_Field__c)) != null && string.valueOf(stagingInventory.get(inv.Inventory_Staging_Field__c)) != '') {
+                    string CusName = '';
+                    CusName = string.valueOf(stagingInventory.get(inv.Inventory_Staging_Field__c));
+                    system.debug(inv.Inventory_Staging_Field__c);
+                    Schema.DisplayType fielddataType = salesHistoryDescribeFields.get(inv.Inventory_Master_Field__c).getDescribe().getType();
+                    if(fielddataType.Name() == 'Reference') {
+                        if(inv.Inventory_Master_Field__c == INVENTORY_MD_CUSTOMER) {
+                            if(MDCustomerMap.containsKey(CusName)) {
+                                inventoryMaster.put(inv.Inventory_Master_Field__c, MDCustomerMap.get(CusName).Id);
+                            } else {
+                                inventoryMaster.put(inv.Inventory_Master_Field__c, CusName);
+                            }
+                        } else if(inv.Inventory_Master_Field__c == INVENTORY_MATERIAL_NAME) {
+                            if(MaterialMasterMap.containsKey(CusName)) {
+                                inventoryMaster.put(inv.Inventory_Master_Field__c, MaterialMasterMap.get(CusName).Id);
+                            } else {
+                                inventoryMaster.put(inv.Inventory_Master_Field__c, CusName);
+                            }
+                        }  	
+                    } else if(fielddataType.Name() == 'DOUBLE' || fielddataType.Name() == 'DECIMAL'|| fielddataType.Name() == 'CURRENCY' || fielddataType.Name() == 'PERCENT') {
+                    	try {
+                        inventoryMaster.put(inv.Inventory_Master_Field__c, double.valueOf(stagingInventory.get(inv.Inventory_Staging_Field__c)));
+                    	} catch(Exception e) {
+                    		Staging_Inventory__c stageInv = new Staging_Inventory__c();
+                    		stageInv = stagingInventory;
+                    		stageInv.Status__c = STATUS_ERROR;
+                            stageInv.Error_Message__c = e.getMessage();
+                    		stagingInventoryListToUpdate.add(stageInv);
+                    		inventoryMaster = null;
+                    		break;
+                    	}
+                    } /*else {
+                    	try {
+                        inventoryMaster.put(inv.Inventory_Master_Field__c, stagingInventory.get(inv.Inventory_Staging_Field__c));
+                    	} catch(Exception e) {
+                    		Staging_Inventory__c stageInv = new Staging_Inventory__c();
+                    		stageInv = stagingInventory;
+                    		stageInv.Status__c = 'Processed-Error';
+                            stageInv.Error_Message__c = e.getMessage();
+                    		stagingInventoryListToUpdate.add(stageInv);
+                    		inventoryMaster = null;
+                    		break;
+                    	}
+                    } */
+                }
+            }
+            if(inventoryMaster != null) {
+            inventoryMaster.External_Id__c = string.valueOf(stagingInventory.eFOCUS_Company_Code__c)+string.valueOf(stagingInventory.eFOCUS_Material_No__c);
+            InventoryMasterList.add(inventoryMaster);
+            system.debug(inventoryMaster);
+            stagingInventoryList.add(stagingInventory);
+            }
+        }
+        
+        if(!InventoryMasterList.isEmpty()) {
+            system.debug(InventoryMasterList);
+            InventoryMasterUpsertResult = database.upsert(InventoryMasterList, Schema.Inventory_Master__c.External_Id__c, false);
+        }
+        
+        if(!InventoryMasterUpsertResult.isEmpty()) {
+            for(integer i = 0; i<InventoryMasterUpsertResult.size(); i++) {
+                string x ='';
+                Staging_Inventory__c stageInv = new Staging_Inventory__c();
+                Database.upsertResult invMasterRes = InventoryMasterUpsertResult[i];
+                list<Database.Error> invMasterErrors = new list<Database.Error>();
+                stageInv = stagingInventoryList[i];
+                //Staging__c staging = percentInstance.stagingSucessAndError[i];
+                if(invMasterRes.isSuccess()) {
+                    if(invMasterRes.isCreated()) {
+                        x += 'Inventory Master Inserted Sucessfully:'+InventoryMasterUpsertResult[i].Id+';';
+                    } else {
+                        x += 'Inventory Master Updated Sucessfully:'+InventoryMasterUpsertResult[i].Id+';';	
+                    }
+                    stageInv.Status__c = STATUS_SUCESS;
+                    stageInv.Error_Message__c = x;
+                    system.debug(x+'KKKKKKKKK');
+                } else {
+                    for(Database.Error err : invMasterRes.getErrors()) {
+                        x+= err.getMessage()+';';
+                    }
+                    stageInv.Status__c = STATUS_ERROR;
+                    stageInv.Error_Message__c = x;
+                  system.debug(x+'KKKKKKKKK');
+                }
+                stagingInventoryListToUpdate.add(stageInv);
+            }
+        }
+        
+        if(!stagingInventoryListToUpdate.isEmpty()) {
+            try{
+                update stagingInventoryListToUpdate;
+            } catch(Exception e) {
+                e.getMessage();
+            }
+        }
+    }
+    
+    global void finish(Database.BatchableContext BC) {
+        
+    }
+}

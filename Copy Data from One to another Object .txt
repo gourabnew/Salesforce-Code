@@ -1,0 +1,191 @@
+/***********************************************************************************************
+Author : 
+Purpose : This batch class is used to copy data from staging outstanding details to SAP reporting info
+object. 
+Created Date : 28/05/2017
+Lastmodified By : 
+Reason: 
+*****************************************************************************************************/
+global class StagingOutstandingDetails implements Database.Batchable<sObject> {
+    
+    //Varibale Declaration
+    private String query;
+    private sObjectType ObjectSchema;
+    private Map<String, Schema.SObjectField> stagingOutstandingDetailsMirrorMap;
+    private list<Staging_Outstanding_Info__c> stagingODListToUpdate;
+    
+    /*************************************************************************
+     Batch class start Method.
+     To Query all staging outstanding details records where processed equals to false.
+    **************************************************************************/ 
+    global Database.QueryLocator start(Database.BatchableContext BC) {
+        //Getting opportunity field api names dynamically
+        ObjectSchema = schema.getGlobalDescribe().get('Staging_Outstanding_Info__c');
+        stagingOutstandingDetailsMirrorMap = ObjectSchema.getDescribe().fields.getMap();
+        
+        //Construct generic query to get opportunity data
+        
+        query = 'Select ';
+        for(Schema.SObjectField s : stagingOutstandingDetailsMirrorMap.values()){
+            query = query+ s.getDescribe().getName()+',';
+        }
+        query = query.removeEnd(',');
+        query = query +' from Staging_Outstanding_Info__c where Processed__c = false';           
+        return database.getQueryLocator(query); 
+    }
+
+    /************************************************************************************
+    Batch Execute Method.
+    Process the batch of records and upsert the records to SAP Reporting Info with 
+    the following ExternalId per recordType :
+    Outstanding Details - Distributor Code + Document Number
+    And update the sucess/error status back to the Staging Outstanding Info object 
+    **************************************************************************************/
+    global void execute(Database.BatchableContext BC, List<Staging_Outstanding_Info__c> scope) {
+
+        list<string> customerList = new list<string>();
+        map<string, Account> accountMap = new map<string, Account>();
+        list<SAP_Reporting_Info__c> outstandingDetailsList = new list<SAP_Reporting_Info__c>();
+        list<Database.upsertResult> outstandingDetailsUpsertResult = new list<Database.upsertResult>();
+        map<String,schema.RecordTypeInfo> RTMapByName = Schema.SObjectType.SAP_Reporting_Info__c.getRecordTypeInfosByName();
+        Schema.RecordTypeInfo RT = RTMapByName.get('Outstanding Info');     
+        list<Staging_Outstanding_Info__c> stagingODList = new list<Staging_Outstanding_Info__c>();
+        stagingODListToUpdate = new list<Staging_Outstanding_Info__c>();
+
+        //Segregating all customer code from satging outstanding details records.
+        for(Staging_Outstanding_Info__c s : scope) {
+            customerList.add(s.Distributor_Code__c);
+        }
+
+        //Getting "SAP Reporting Info" object, Fields details. 
+        map<String, Schema.SObjectField> SAPReportingInfoDescribeFields = Schema.SObjectType.SAP_Reporting_Info__c.fields.getMap();
+        
+        //Getting "Outstanding Details Map" custom setting values.
+        map<string, Outstanding_Details_Map__c> outstandingDetailsFieldMap =  Outstanding_Details_Map__c.getAll();
+        
+        //Retreiving Material Master for the corresponding Satging Inventory.
+        if(!customerList.isEmpty()) {
+            for(Account acc : [select Id,Name,SAP_Customer_Number__c from Account where SAP_Customer_Number__c IN: customerList]) {
+                accountMap.put(acc.SAP_Customer_Number__c, acc);
+            }
+        }
+
+        //Mapping outstanding details info with SAP Reporting Info
+        for(Staging_Outstanding_Info__c SOI : scope){
+            SAP_Reporting_Info__c SRI = new SAP_Reporting_Info__c();
+            for(Outstanding_Details_Map__c ODM : outstandingDetailsFieldMap.values()){
+                if(string.valueOf(SOI.get(ODM.Staging_Field__c))!= null && string.valueOf(SOI.get(ODM.Staging_Field__c))!= ''){
+                    Schema.DisplayType fielddataType = SAPReportingInfoDescribeFields.get(ODM.Target_Field__c).getDescribe().getType();
+                    string cusName = '';
+                    cusName = string.valueOf(SOI.get(ODM.Staging_Field__c));
+                    if(fielddataType.Name() == 'Reference') {
+                        if(ODM.Target_Field__c == 'Customer__c') {
+                            if(accountMap.containsKey(cusName)) {
+                                SRI.put(ODM.Target_Field__c, accountMap.get(cusName).Id);
+                            } else {
+                                SRI.put(ODM.Target_Field__c, cusName);
+                            }
+                        } 
+                    }
+                    else if(fielddataType.Name() == 'Date') {
+                        Date tempDate;
+                        String[] tempStr = new list<String>();
+                        try {
+                            if(string.valueOf(SOI.get(ODM.Staging_Field__c)).contains('/')) {
+                                tempStr = string.valueOf(SOI.get(ODM.Staging_Field__c)).split('/');
+                            }
+                            
+                            if(tempStr.size() == 0) {
+                                tempStr = string.valueOf(SOI.get(ODM.Staging_Field__c)).split('-');
+                            }                            
+                            tempDate = Date.newInstance(Integer.valueOf(tempStr[2]), Integer.valueOf(tempStr[1]), Integer.valueOf(tempStr[0]));                            
+                            SRI.put(ODM.Target_Field__c, tempDate);
+                        } catch(Exception exceptionMsg) {
+                            generateErrorMsg(exceptionMsg, SOI);
+                            SRI = null;
+                            break;
+                        }
+                    }
+                    else if(fielddataType.Name() == 'DOUBLE' || fielddataType.Name() == 'DECIMAL'|| fielddataType.Name() == 'CURRENCY' || fielddataType.Name() == 'PERCENT') {
+                        try {
+                            SRI.put(ODM.Target_Field__c, double.valueOf(SOI.get(ODM.Staging_Field__c)));
+                        } catch(Exception exceptionMsg) {
+                            generateErrorMsg(exceptionMsg, SOI);
+                            SRI = null;
+                            break;
+                        }
+                    }
+                    else {
+                        try {
+                            SRI.put(ODM.Target_Field__c, SOI.get(ODM.Staging_Field__c));
+                        } catch(Exception exceptionMsg) {
+                            generateErrorMsg(exceptionMsg, SOI);
+                            SRI = null;
+                            break;
+                        }
+                    }   
+                }               
+            }
+
+            if(SRI != null) {
+                SRI.RecordTypeId = RT.getRecordTypeId();
+                SRI.Outstanding_Details_External_Id__c = string.valueOf(SRI.Distributor_Code__c) + string.valueOf(SRI.Document_Number_c__c);
+                outstandingDetailsList.add(SRI);
+                stagingODList.add(SOI);
+            }
+        }
+
+        if(!outstandingDetailsList.isEmpty()) {
+            outstandingDetailsUpsertResult = database.upsert(outstandingDetailsList, Schema.SAP_Reporting_Info__c.Outstanding_Details_External_Id__c, false);
+        }
+        
+        //Process the results
+        if(!outstandingDetailsUpsertResult.isEmpty()) {
+            for(integer i = 0; i < outstandingDetailsUpsertResult.size(); i++) {
+                string x ='';
+                Staging_Outstanding_Info__c stageOD = new Staging_Outstanding_Info__c();
+                Database.upsertResult ODResult = outstandingDetailsUpsertResult[i];
+                list<Database.Error> ODErrors = new list<Database.Error>();
+                stageOD = stagingODList[i];
+
+                if(ODResult.isSuccess()) {
+                    if(ODResult.isCreated()) {
+                        x += 'Outstaning details Inserted Sucessfully:'+outstandingDetailsUpsertResult[i].Id+';';
+                    } else {
+                        x += 'Outstaning details Updated Sucessfully:'+outstandingDetailsUpsertResult[i].Id+';';    
+                    }
+                    stageOD.Processed__c = true;
+                    stageOD.Error_Message__c = x;
+                } else {
+                    for(Database.Error err : ODResult.getErrors()) {
+                        x+= err.getMessage()+';';
+                    }
+                    stageOD.Error_Message__c = x;
+                }
+                stagingODListToUpdate.add(stageOD);
+            }
+        }
+
+        if(!stagingODListToUpdate.isEmpty()) {
+            try {
+                update stagingODListToUpdate;
+            } catch(Exception e) {
+                e.getMessage();
+            }
+        }
+    }
+    
+
+    //Exception handling method.
+    public void generateErrorMsg(Exception exceptionMsg, Staging_Outstanding_Info__c stageOD) {
+        Staging_Outstanding_Info__c stageODException = new Staging_Outstanding_Info__c();
+        stageODException = stageOD;       
+        stageODException.Error_Message__c = exceptionMsg.getMessage();
+        stagingODListToUpdate.add(stageODException);
+    }
+
+    global void finish(Database.BatchableContext BC) {
+        
+    }
+    
+}

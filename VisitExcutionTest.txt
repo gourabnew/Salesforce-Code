@@ -1,0 +1,251 @@
+@isTest
+public class VisitExecutionControllerTest {
+    
+   //Variable declaration
+     public static User ur;
+     public static User ur1;
+     public static Account acc;
+     public static Account acc1;
+     public static Product_Master__c pm;
+     public static Visit__c vt;
+     public static Sales_Order__c so;
+     public static Sales_Order_Line_Item__c soli;
+     public static Scheme__c sh;
+    
+    static testMethod void testMethod1(){
+        
+        VisitExecutionController Visite = new VisitExecutionController();
+        Profile p = [SELECT Id FROM Profile WHERE Name='DSR Profile'];
+        Profile p1 = [SELECT Id FROM Profile WHERE Name='ATM Profile'];
+        Date dt = system.today();
+        Datetime dtTime = DateTime.newInstance(dt, Time.newInstance(0, 0, 0, 0));
+        // User Data
+        ur=IntializeTestData.CreateUser('TestUser','standarduser@testorg.com','TstAlias','TestUser@acmeeeee.com','abc','en_IN',
+                                       'Asia/Kolkata',p.id,'en_US','UTF-8','12345');
+        ur.User_Type__c = 'DSR';
+        ur.Route__c = 'TESTROUTE';
+        ur.Center__c = 'TESTCENTER';
+        ur.Sales_Office__c = 'Central';
+        ur.Sales_Group__c = 'Bungoma';
+        insert ur;
+        system.runAs(ur)
+        {
+         System.debug('Current User: ' + UserInfo.getUserName());
+         System.debug('Current Profile: ' + UserInfo.getProfileId()); 
+        }
+       
+        
+        // Account Data
+        acc=IntializeTestData.createPrimaryCustomer('CP1','11233','Kenya Stores1','Thika1', 
+                                              '2323','Thika1','central1','Bidco1@gmail.com',true);
+        acc.Geo_Code__Latitude__s = 12.972442;
+        acc.Geo_Code__Longitude__s =77.580643;
+        acc.BillingState = 'Karnataka';
+        acc.BillingCountry = 'India';
+        acc.Customer_Category__c = 'Silver';
+        acc.Customer_Group__c ='CP';
+        acc.Total_Amount__c = 222.05;
+        acc.X0_7_Days__c = 12.12;
+        acc.X31_60_Days__c = 12.12;
+        acc.Legal_Status__c = 'approve';
+        insert acc;
+        
+        // Account Second Data
+        acc1=IntializeTestData.createPrimaryCustomer('CP1',acc.SAP_Customer_Number__c,'Kenya Stores1','Thika1', 
+                                              '2323','Thika1','central1','Bidco1@gmail.com',true);
+        acc1.Geo_Code__Latitude__s = 12.972442;
+        acc1.Geo_Code__Longitude__s =77.580643;
+        acc1.BillingState = 'Karnataka';
+        acc1.BillingCountry = 'India';
+        acc1.Customer_Category__c = 'Silver';
+        acc1.Customer_Group__c ='CP';
+        acc1.Total_Amount__c = 222.05;
+        acc1.X0_7_Days__c = 12.12;
+        acc1.X31_60_Days__c = 12.12;
+        acc1.Legal_Status__c = 'approve';
+        insert acc1;
+        
+        // Second User
+        ur1=IntializeTestData.CreateUser('TestUser1','standarduser@testorg.com','TstAlias','TestUser1@acmeeeee.com','abc1','en_IN',
+                                       'Asia/Kolkata',p1.id,'en_US','UTF-8','12345');
+        ur1.User_Type__c = 'ATM';
+        ur1.Route__c = 'TESTROUTE';
+        ur1.Center__c = 'TESTCENTER';
+        ur1.Sales_Office__c = 'Central';
+        ur1.Sales_Group__c = 'Bungoma';
+         system.runAs(ur1)
+        {
+         System.debug('Current User: ' + UserInfo.getUserName());
+         System.debug('Current Profile: ' + UserInfo.getProfileId()); 
+        }
+        //insert ur1;
+       
+        // Visit Plan Data
+        Visit_Plan__c vp = new Visit_Plan__c();
+        vp.Status__c = 'Approved';
+        insert vp;
+        
+        // Visit object Data
+        vt=IntializeTestData.createVisit(acc.Id,dt,22.572646,88.363895,24.572646,92.363895,
+                                         dtTime,dtTime,'Heavy Traffic',ur.Id,vp.Id,ur.Id);
+        insert vt;
+        
+        //product master object
+		Product_Master__c pm = new Product_Master__c();
+        pm.Name = '70230180';
+        insert pm;
+        
+        
+        // Sales Order object
+        RecordType  rcType = [SELECT Id,Name,DeveloperName FROM RecordType WHERE Name='Primary Sales Order'];
+        so=IntializeTestData.createSalesOrderData(acc.id,null,'12345');
+        so.RecordTypeId = rcType.Id;
+        so.Order_Status__c = 'Created';
+        so.Date__c = dt;
+        insert so;
+        
+        Visit__c vt1=IntializeTestData.createVisit(acc.Id,dt,22.572646,88.363895,24.572646,92.363895,
+                                         dtTime,dtTime,'Heavy Traffic',ur.Id,vp.Id,ur.Id);
+        Visit__c vt2=IntializeTestData.createVisit(acc.Id,date.today(),22.572646,88.363895,24.572646,92.363895,
+                                         dtTime,dtTime,'Heavy Traffic',ur.Id,vp.Id,ur.Id);
+        INSERT vt2;
+        Scheme__c sh = new Scheme__c();
+        sh.Scheme_Name__c='ET';
+        sh.Expires_On__c=system.today().addDays(2);
+        sh.Description__c='ETTTTT';
+        sh.Status__c='Active';
+        sh.Budget_Limit__c=111.56;
+        sh.Valid_From__c=system.today();
+        insert sh;
+        
+         // Sales Order Line Item object
+        soli = IntializeTestData.createSalesOrderLineItem(pm.Id,111.67,'Test',so.Id);
+        soli.Sales_Price__c = 100.50;
+        insert soli;
+        
+        VisitExecutionController.checkInSave(vt, acc.Id);
+        VisitExecutionController.checkInSave(vt1, acc.Id);
+        VisitExecutionController.checkOutSave(vt, acc.Id);
+        VisitExecutionController.missedSave(vt,acc.Id);
+        VisitExecutionController.missedSave(vt1,acc.Id);
+        VisitExecutionController.getCustomers('All');
+        VisitExecutionController.getReasons();
+        VisitExecutionController.getRoutes();
+        VisitExecutionController.getSalesOrderList(acc.Id);
+        VisitExecutionController.getReportID();
+        VisitExecutionController.getAccountDetails(acc.Id,vt.Id);
+        //String customerids = acc.id;
+        VisitExecutionController.getOutstandingInfo(acc.id);
+        VisitExecutionController.getActiveSchemes();
+        VisitExecutionController.getHolidays();
+
+    }
+    
+    static testMethod void testMethod2(){
+         VisitExecutionController Visite = new VisitExecutionController();
+        Profile p = [SELECT Id FROM Profile WHERE Name='DSR Profile'];
+        Profile p1 = [SELECT Id FROM Profile WHERE Name='ATM Profile'];
+        Date dt = Date.newInstance(2016,06,23);
+        Datetime dtTime = DateTime.newInstance(dt, Time.newInstance(0, 0, 0, 0));
+        // User Data
+        ur=IntializeTestData.CreateUser('TestUser','standarduser@testorg.com','TstAlias','TestUser@acmeeeee.com','abc','en_IN',
+                                       'Asia/Kolkata',p.id,'en_US','UTF-8','12345');
+        ur.User_Type__c = 'DSR';
+        ur.Route__c = 'TESTROUTE';
+        ur.Center__c = 'TESTCENTER';
+        ur.Sales_Office__c = 'Central';
+        ur.Sales_Group__c = 'Bungoma';
+        system.runAs(ur)
+        {
+         System.debug('Current User: ' + UserInfo.getUserName());
+         System.debug('Current Profile: ' + UserInfo.getProfileId()); 
+        }
+       // insert ur;
+        // Account Data
+        acc=IntializeTestData.createPrimaryCustomer('CP1','11233','Kenya Stores1','Thika1', 
+                                              '2323','Thika1','central1','Bidco1@gmail.com',true);
+        acc.Geo_Code__Latitude__s = 12.972442;
+        acc.Geo_Code__Longitude__s =77.580643;
+        acc.BillingState = 'Karnataka';
+        acc.BillingCountry = 'India';
+        acc.Customer_Category__c = 'Silver';
+        acc.Customer_Group__c ='CP';
+        acc.Total_Amount__c = 222.05;
+        acc.X0_7_Days__c = 12.12;
+        acc.X31_60_Days__c = 12.12;
+        acc.Legal_Status__c = 'approve';
+        insert acc;
+        
+        // Account Second Data
+        acc1=IntializeTestData.createPrimaryCustomer('CP1',acc.SAP_Customer_Number__c,'Kenya Stores1','Thika1', 
+                                              '2323','Thika1','central1','Bidco1@gmail.com',true);
+        acc1.Geo_Code__Latitude__s = 12.972442;
+        acc1.Geo_Code__Longitude__s =77.580643;
+        acc1.BillingState = 'Karnataka';
+        acc1.BillingCountry = 'India';
+        acc1.Customer_Category__c = 'Silver';
+        acc1.Customer_Group__c ='CP';
+        acc1.Total_Amount__c = 222.05;
+        acc1.X0_7_Days__c = 12.12;
+        acc1.X31_60_Days__c = 12.12;
+        acc1.Legal_Status__c = 'approve';
+        insert acc1;
+        
+        // Second User
+        ur1=IntializeTestData.CreateUser('TestUser1','standarduser@testorg.com','TstAlias','TestUser1@acmeeeee.com','abc1','en_IN',
+                                       'Asia/Kolkata',p1.id,'en_US','UTF-8','12345');
+        ur1.User_Type__c = 'ATM';
+        ur1.Route__c = 'TESTROUTE';
+        ur1.Center__c = 'TESTCENTER';
+        ur1.Sales_Office__c = 'Central';
+        ur1.Sales_Group__c = 'Bungoma';
+        system.runAs(ur1)
+        {
+         System.debug('Current User: ' + UserInfo.getUserName());
+         System.debug('Current Profile: ' + UserInfo.getProfileId()); 
+        }
+       // insert ur1;
+       
+        // Visit Plan Data
+        Visit_Plan__c vp = new Visit_Plan__c();
+        vp.Status__c = 'Approved';
+        insert vp;
+        
+        // Visit object Data
+        vt=IntializeTestData.createVisit(acc.Id,dt,22.572646,88.363895,24.572646,92.363895,
+                                         dtTime,dtTime,'Heavy Traffic',ur1.Id,vp.Id,ur1.Id);
+        //vt.Visit_Plan__c=vp.id;
+        //vt.Visit_Plan_Date__c = Date.newInstance(2016,06,23);
+        insert vt;
+        
+        //product master object
+		Product_Master__c pm = new Product_Master__c();
+        pm.Name = '70230180';
+        insert pm;
+        
+        
+        // Sales Order object
+        RecordType  rcType = [SELECT Id,Name,DeveloperName FROM RecordType WHERE Name='Primary Sales Order'];
+        so=IntializeTestData.createSalesOrderData(acc.id,null,'12345');
+        so.RecordTypeId = rcType.Id;
+        so.Order_Status__c = 'Created';
+        so.Date__c = dt;
+        insert so;
+        
+         // Sales Order Line Item object
+        soli = IntializeTestData.createSalesOrderLineItem(pm.Id,111.67,'Test',so.Id);
+        soli.Sales_Price__c = 100.50;
+        insert soli;
+        
+        try{
+            System.debug(vt.Visit_Plan__r.Status__c);
+            System.debug(vt.CreatedbyID);
+            VisitExecutionController.getCustomers('23-06-2016 tytyt');
+        }
+        catch(Exception e){
+            system.debug(e.getMessage() + '' + e.getLineNumber());
+        }
+    }
+    
+   
+}
